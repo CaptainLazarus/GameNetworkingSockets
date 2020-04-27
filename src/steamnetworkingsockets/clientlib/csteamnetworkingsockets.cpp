@@ -11,6 +11,10 @@
 #include <steam/steamnetworkingsockets.h>
 #endif
 
+#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+#include "csteamnetworkingmessages.h"
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -57,8 +61,14 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_AckRTT, k_ESteamNetworkingSo
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketDecode, k_ESteamNetworkingSocketsDebugOutputType_Everything, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_Message, k_ESteamNetworkingSocketsDebugOutputType_Everything, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketGaps, k_ESteamNetworkingSocketsDebugOutputType_Debug, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_STUN_ServerList, "" );
+#endif
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, SDRClient_DebugTicketAddress, "" );
 #endif
 
@@ -271,6 +281,7 @@ std::vector<CSteamNetworkingSockets *> CSteamNetworkingSockets::s_vecSteamNetwor
 CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamNetworkingUtils )
 : m_bHaveLowLevelRef( false )
 , m_pSteamNetworkingUtils( pSteamNetworkingUtils )
+, m_pSteamNetworkingMessages( nullptr )
 {
 	m_connectionConfig.Init( nullptr );
 	m_identity.Clear();
@@ -357,6 +368,20 @@ void CSteamNetworkingSockets::KillConnections()
 void CSteamNetworkingSockets::Destroy()
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread( "CSteamNetworkingSockets::Destroy" );
+
+	// Nuke messages interface, if we had one
+	#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+		if ( m_pSteamNetworkingMessages )
+		{
+			delete m_pSteamNetworkingMessages;
+
+			// That destructor should clear our pointer (so we can be destroyed in either order)
+			Assert( m_pSteamNetworkingMessages == nullptr );
+
+			// But clear it just to be safe
+			m_pSteamNetworkingMessages = nullptr;
+		}
+	#endif
 
 	KillConnections();
 
@@ -1570,22 +1595,22 @@ ESteamNetworkingConfigValue CSteamNetworkingUtils::GetFirstConfigValue()
 
 void CSteamNetworkingUtils::SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr &addr, char *buf, size_t cbBuf, bool bWithPort )
 {
-	SteamAPI_SteamNetworkingIPAddr_ToString( &addr, buf, cbBuf, bWithPort );
+	::SteamNetworkingIPAddr_ToString( &addr, buf, cbBuf, bWithPort );
 }
 
 bool CSteamNetworkingUtils::SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr )
 {
-	return SteamAPI_SteamNetworkingIPAddr_ParseString( pAddr, pszStr );
+	return ::SteamNetworkingIPAddr_ParseString( pAddr, pszStr );
 }
 
 void CSteamNetworkingUtils::SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf )
 {
-	return SteamAPI_SteamNetworkingIdentity_ToString( &identity, buf, cbBuf );
+	return ::SteamNetworkingIdentity_ToString( &identity, buf, cbBuf );
 }
 
 bool CSteamNetworkingUtils::SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, const char *pszStr )
 {
-	return SteamAPI_SteamNetworkingIdentity_ParseString( pIdentity, sizeof(SteamNetworkingIdentity), pszStr );
+	return ::SteamNetworkingIdentity_ParseString( pIdentity, sizeof(SteamNetworkingIdentity), pszStr );
 }
 
 AppId_t CSteamNetworkingUtils::GetAppID()

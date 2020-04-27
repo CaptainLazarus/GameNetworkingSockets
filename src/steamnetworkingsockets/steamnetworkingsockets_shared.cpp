@@ -221,7 +221,7 @@ using namespace SteamNetworkingSocketsLib;
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr *pAddr, char *buf, size_t cbBuf, bool bWithPort )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr *pAddr, char *buf, size_t cbBuf, bool bWithPort )
 {
 	if ( pAddr->IsIPv4() )
 	{
@@ -246,18 +246,26 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_ToString( c
 	}
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr )
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr )
 {
 	// IPv4?
 	{
-		int n1, n2, n3, n4, n5 = 0;
+		int n1, n2, n3, n4, n5;
 		int nRes = sscanf( pszStr, "%d.%d.%d.%d:%d", &n1, &n2, &n3, &n4, &n5 );
 		if ( nRes >= 4 )
 		{
 			pAddr->Clear();
 
-			// Make sure octets are in range 0...255 and port number is legit
-			if ( ( ( n1 | n2 | n3 | n4 ) & ~0xff ) || (uint16)n5 != n5 )
+			// Assume 0 for port, if we weren't able to parse one.
+			// Note that we could be accepting some bad IP addresses
+			// here that we probably should reject.  E.g. "1.2.3.4:garbage"
+			if ( nRes < 5 )
+				n5 = 0;
+			else if ( (uint16)n5 != n5 )
+				return false; // port number not 16-bit value
+
+			// Make sure octets are in range 0...255
+			if ( ( n1 | n2 | n3 | n4 ) & ~0xff )
 				return false;
 
 			pAddr->m_ipv4.m_ffff = 0xffff;
@@ -288,7 +296,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_ParseString
 	return true;
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity *pIdentity, char *buf, size_t cbBuf )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity *pIdentity, char *buf, size_t cbBuf )
 {
 	switch ( pIdentity->m_eType )
 	{
@@ -336,7 +344,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString(
 	}
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr )
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr )
 {
 	const size_t sizeofHeader = offsetof( SteamNetworkingIdentity, m_cbSize ) + sizeof( pIdentity->m_cbSize );
 	COMPILE_TIME_ASSERT( sizeofHeader == 8 );

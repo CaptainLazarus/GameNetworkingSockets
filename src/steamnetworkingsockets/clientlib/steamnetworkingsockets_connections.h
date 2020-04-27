@@ -36,6 +36,7 @@ typedef char ConnectionEndDebugMsg[ k_cchSteamNetworkingMaxConnectionCloseReason
 class CSteamNetworkingSockets;
 class CSteamNetworkingMessages;
 class CSteamNetworkConnectionBase;
+class CSteamNetworkConnectionP2P;
 class CSharedSocket;
 class CConnectionTransport;
 struct SNPAckSerializerHelper;
@@ -446,11 +447,15 @@ public:
 
 	/// Send a data packet now, even if we don't have the bandwidth available.  Returns true if a packet was
 	/// sent successfully, false if there was a problem.  This will call SendEncryptedDataChunk to do the work
-	bool SNP_SendPacket( SendPacketContext_t &ctx );
+	bool SNP_SendPacket( CConnectionTransport *pTransport, SendPacketContext_t &ctx );
 
-	/// Called to (maybe) post a callback
+	/// Called after the connection state changes.  Default behavior is to notify
+	/// the active transport, if any
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
+
+	/// Called to post a callback
 	bool m_bSupressStateChangeCallbacks;
-	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState );
+	void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState );
 
 	void QueueEndToEndAck( bool bImmediate, SteamNetworkingMicroseconds usecNow )
 	{
@@ -500,6 +505,9 @@ public:
 	/// should think next
 	void CheckConnectionStateAndSetNextThinkTime( SteamNetworkingMicroseconds usecNow );
 
+	// Upcasts.  So we don't have to compile with RTTI
+	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P();
+
 protected:
 	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
 	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use ConnectionDestroySelfNow()
@@ -534,7 +542,25 @@ protected:
 
 	/// Misc periodic processing.
 	/// Called from within CheckConnectionStateAndSetNextThinkTime.
+	/// Will be called in any connection state.
 	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow );
+
+	/// Called from the connection Think() state machine, for connections that have been
+	/// initiated locally and that are in the connecting state.
+	///
+	/// Should return the next time when it needs to be woken up.  Or it can set the next
+	/// think time directly, if it is awkward to return.  That is slightly
+	/// less efficient.
+	///
+	/// Base class sends connect requests (including periodic retry) through the current
+	/// transport.
+	virtual SteamNetworkingMicroseconds ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow );
+
+	/// Called from the connection Think() state machine, when the connection is in the finding
+	/// route state.  The connection should return the next time when it needs to be woken up.
+	/// Or it can set the next think time directly, if it is awkward to return.  That is slightly
+	/// less efficient.
+	virtual SteamNetworkingMicroseconds ThinkConnection_FindingRoute( SteamNetworkingMicroseconds usecNow );
 
 	/// Called when a timeout is detected
 	void ConnectionTimedOut( SteamNetworkingMicroseconds usecNow );
@@ -604,12 +630,6 @@ protected:
 
 	/// Called to decide if we want to try to proceed without a signed cert for ourselves
 	virtual EUnsignedCert AllowLocalUnsignedCert();
-
-	/// Return true if the connection has some mechanism to send an end-to-end connect request
-	virtual bool BConnectionCanSendEndToEndConnectRequest() const;
-
-	/// Send an end-to-end connect request
-	virtual void ConnectionSendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow );
 
 	//
 	// "SNP" - Steam Networking Protocol.  (Sort of audacious to stake out this acronym, don't you think...?)
@@ -734,7 +754,7 @@ public:
 	virtual void GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow );
 
 	/// Called when the connection state changes.  Some transports need to do stuff
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
+	virtual void TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
 
 	// Some accessors for commonly needed info
 	inline ESteamNetworkingConnectionState ConnectionState() const { return m_connection.GetState(); }
@@ -783,9 +803,9 @@ public:
 	virtual EUnsignedCert AllowLocalUnsignedCert() override;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 	virtual void DestroyTransport() override;
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 
 	// CSteamNetworkConnectionTransport
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
 	virtual bool BCanSendEndToEndConnectRequest() const override;
 	virtual bool BCanSendEndToEndData() const override;

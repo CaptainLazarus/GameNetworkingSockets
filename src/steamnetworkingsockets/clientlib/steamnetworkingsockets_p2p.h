@@ -11,18 +11,20 @@ class CMsgSteamDatagramConnectRequest;
 
 namespace SteamNetworkingSocketsLib {
 
+/// Special disconnection reason code that is used in signals
+/// to indicate "no connection"
+const uint32 k_ESteamNetConnectionEnd_Internal_P2PNoConnection = 9999;
+
 struct SteamNetworkingMessagesSession;
 class CSteamNetworkingMessages;
-class CSteamNetworkConnectionP2P;
-
-class CConnectionTransportP2PSDR; // FIXME!
+class CConnectionTransportP2PSDR;
+class CConnectionTransportP2PICE;
 
 //-----------------------------------------------------------------------------
 /// Listen socket for peer-to-peer connections relayed through through SDR network
 /// We can only do this on platforms where this is some sort of "default" signaling
 /// mechanism
 
-#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
 class CSteamNetworkListenSocketP2P : public CSteamNetworkListenSocketBase
 {
 public:
@@ -37,7 +39,6 @@ private:
 	/// The "virtual port" of the server for relay connections.
 	int m_nVirtualPort;
 };
-#endif
 
 /// A peer-to-peer connection that can use different types of underlying transport
 class CSteamNetworkConnectionP2P final : public CSteamNetworkConnectionBase
@@ -58,12 +59,12 @@ public:
 	// CSteamNetworkConnectionBase overrides
 	virtual void FreeResources() override;
 	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override;
-	virtual void GuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow ) override;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
-	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow );
+	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow ) override;
+	virtual SteamNetworkingMicroseconds ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void DestroyTransport() override;
-	virtual bool BConnectionCanSendEndToEndConnectRequest() const override;
-	virtual void ConnectionSendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
+	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P() override;
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 
 	void SendConnectOKSignal( SteamNetworkingMicroseconds usecNow );
 	void SendConnectionClosedSignal( SteamNetworkingMicroseconds usecNow );
@@ -87,7 +88,45 @@ public:
 	//
 	// Different transports
 	//
-	CConnectionTransportP2PSDR *m_pTransportP2PSDR;
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		CConnectionTransportP2PSDR *m_pTransportP2PSDR;
+	#endif
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+
+		// ICE transport that we are using, if any
+		CConnectionTransportP2PICE *m_pTransportICE;
+
+		// If ICE transport needs to self-destruct, we move it here, and clear
+		// m_pTransportICE.  Then it will be deleted at a safe time.
+		CConnectionTransportP2PICE *m_pTransportICEPendingDelete;
+
+		// Failure reason for ICE, if any.  (0 if no failure yet.)
+		int m_nICECloseCode;
+		char m_szICECloseMsg[ k_cchSteamNetworkingMaxConnectionCloseReason ];
+	#endif
+
+	SteamNetworkingMicroseconds m_usecNextEvaluateTransport;
+
+	/// True if we should be "sticky" to the current transport.
+	/// When major state changes happen, we clear this flag
+	/// and evaluate from scratch with no stickiness
+	bool m_bTransportSticky;
+
+	void ThinkSelectTransport( SteamNetworkingMicroseconds usecNow );
+	void TransportEndToEndConnectivityChanged( CConnectionTransport *pTransport );
+	void SelectTransport( CConnectionTransport *pTransport );
+
+	// Check if user permissions for the remote host are allowed, then
+	// create ICE.  Also, if the connection was initiated remotely,
+	// we will create an offer
+	void CheckInitICE();
+
+	// Check if we pended ICE deletion, then do so now
+	void CheckCleanupICE();
+
+	void DestroyICENow();
+
+	// FIXME - UDP transport for LAN discovery, so P2P works without any signaling
 
 	inline int LogLevel_P2PRendezvous() const { return m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }
 

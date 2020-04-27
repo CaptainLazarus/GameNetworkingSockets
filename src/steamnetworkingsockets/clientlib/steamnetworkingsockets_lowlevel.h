@@ -261,6 +261,7 @@ inline bool BRateLimitSpew( SteamNetworkingMicroseconds usecNow )
 
 extern ESteamNetworkingSocketsDebugOutputType g_eSteamDatagramDebugOutputDetailLevel;
 extern void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, PRINTF_FORMAT_STRING const char *pMsg, ... ) FMTFUNCTION( 2, 3 );
+extern void VReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, va_list ap );
 #define SpewType( eType, ... ) ( ( (eType) <= g_eSteamDatagramDebugOutputDetailLevel ) ? ReallySpewType( ESteamNetworkingSocketsDebugOutputType(eType), __VA_ARGS__ ) : (void)0 )
 #define SpewMsg( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Msg, __VA_ARGS__ )
 #define SpewVerbose( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Verbose, __VA_ARGS__ )
@@ -314,6 +315,38 @@ extern void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocke
 /// Wake up the service thread ASAP.  Intended to be called from other threads,
 /// but is safe to call from the service thread as well.
 extern void WakeSteamDatagramThread();
+
+/// Class used to take some action while we have the global thread locked,
+/// perhaps later and in another thread if necessary.  Intended to be used
+/// from callbacks and other contexts where we don't know what thread we are
+/// in and cannot risk trying to waiton the lock, without risking creating
+/// a deadlock.
+///
+/// Note: This code could have been a lot simpler with std::function, but
+/// it was intentionally notused, to avoid adding that runtime dependency.
+class ISteamNetworkingSocketsRunWithLock
+{
+public:
+	virtual ~ISteamNetworkingSocketsRunWithLock();
+
+	/// If we can run immediately, then do so, delete self, and return true.
+	/// Otherwise, we are placed into a queue and false is returned.
+	bool RunOrQueue( const char *pszTag );
+
+	/// Don't check the global lock, just queue the item to be run.
+	void Queue( const char *pszTag );
+
+	/// Called from service thread while we hold the lock
+	static void ServiceQueue();
+
+private:
+	const char *m_pszTag = nullptr;
+
+protected:
+	virtual void Run() = 0;
+
+	inline ISteamNetworkingSocketsRunWithLock() {};
+};
 
 } // namespace SteamNetworkingSocketsLib
 
